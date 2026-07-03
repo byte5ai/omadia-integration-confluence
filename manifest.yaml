@@ -1,0 +1,197 @@
+schema_version: "1"
+
+identity:
+  id: "@omadia/integration-confluence"
+  name: "Confluence Connector"
+  version: "0.3.1"
+  kind: "integration"
+  domain: "confluence"
+  description: "Atlassian Confluence REST-API-Layer (space-scoped) für den Confluence-Playbook-Sub-Agent + proaktive Page-Entity-Synchronisation in den Knowledge-Graph. Read-only per Default; optionaler Schreibzugriff (Seite anlegen/aktualisieren, Kommentar) via confluence_write_enabled, abgesichert durch zweistufigen Vorschau-/Bestätigungs-Flow. Publiziert kernel-Services 'confluence.client' (ConfluenceClient) + 'confluence.toolkit' (LocalSubAgentTool[])."
+  authors:
+    - name: "byte5 GmbH"
+      email: "dev@byte5.de"
+      url: "https://byte5.de"
+  license: "MIT"
+  categories:
+    - "integration"
+    - "knowledge"
+
+compat:
+  core: ">=1.0 <2.0"
+  node: ">=20"
+
+lifecycle:
+  entry: "dist/plugin.js"
+
+# S+8 sub-commit 2b: depends on @omadia/knowledge-graph for the
+# `knowledgeGraph` capability (consumed by ConfluenceEntitySync) and the
+# `entityRefBus` capability (consumed by createConfluenceTools — every
+# tool-handler publishes EntityRef observations). The CapabilityResolver
+# enforces provider-before-consumer activation order — without this
+# `requires:` block, the plugin could activate before the KG plugin and
+# the `ctx.services.get<EntityRefBus>('entityRefBus')` lookup would fail
+# with "[confluence] requires 'entityRefBus' service".
+requires:
+  - "knowledgeGraph@^1"
+  - "entityRefBus@^1"
+
+# Slice 2.5 — Privacy-Mode-Empfehlung.
+#
+# Confluence-Page-Bodies sind document-shaped (verschachteltes HTML/ADF, ein
+# einzelnes hochentropisches String-Feld). Der Privacy-Shield-v4-Classifier
+# klassifiziert sie deny-by-default als `sensitive-masked` — der Sub-Agent
+# sieht dann nur `[masked]` und kann nicht zusammenfassen. v4_render_answer
+# kann das nicht reparieren (es materialisiert row-shape-Datasets, nicht
+# document-shape-Synthese).
+#
+# Deshalb empfehlen wir Operatoren, dieses Plugin auf "Bypass" zu stellen,
+# damit Confluence-Tool-Ergebnisse unmaskiert an den Sub-Agent gehen und
+# echte inhaltliche Zusammenfassungen entstehen können. Die Empfehlung wird
+# vom Installer als Hint im Privacy-Mode-Dropdown angezeigt; der Operator
+# hat die letzte Entscheidung.
+#
+# Sunset-Bedingung: sobald der NER-Body-Detector (Slice 3.2) live ist,
+# kann v4 Confluence-Bodies inhaltlich klug behandeln — dann sollte diese
+# Empfehlung auf "guarded" zurückgesetzt oder entfernt werden.
+privacy:
+  recommendation:
+    mode: "bypass"
+    reason: "Confluence-Page-Bodies sind document-shaped; im Guarded-Mode bekommt der Sub-Agent nur [masked] zurück und kann keine inhaltliche Zusammenfassung generieren. Bypass eignet sich für vertrauenswürdige interne Spaces (Trust-Tier-1)."
+
+setup:
+  fields:
+    - key: "confluence_base_url"
+      type: "string"
+      label: "Confluence Base-URL"
+      help: "Base-URL der Confluence-Instanz, z.B. https://your-instance.atlassian.net/wiki. Kein trailing slash nötig."
+      required: true
+    - key: "confluence_email"
+      type: "string"
+      label: "Atlassian-E-Mail"
+      help: "E-Mail-Adresse des Atlassian-Accounts, der das API-Token besitzt."
+      required: true
+    - key: "confluence_api_token"
+      type: "secret"
+      label: "API-Token"
+      help: "Rotierbar unter https://id.atlassian.com/manage-profile/security/api-tokens."
+      required: true
+    - key: "confluence_space_key"
+      type: "string"
+      label: "Space-Key"
+      help: "Der Space-Key, auf den der Sub-Agent hart gescoped ist (Default: HOME). Alle Tool-Operations werden serverseitig auf diesen Space beschränkt."
+      required: false
+      default: "HOME"
+    - key: "confluence_proxy_max_bytes"
+      type: "string"
+      label: "Max Response-Size (Bytes)"
+      help: "Kappt Confluence-Antworten über diesem Limit — Atlassian-Seiten mit body.view können leicht mehrere MB werden. Default 200000."
+      required: false
+      default: "200000"
+
+    # ------------------------------------------------------------------
+    # Write access (opt-in). Default off → toolkit stays read-only. When
+    # 'true', the create/update/comment + commit tools are registered. Every
+    # write goes through a two-phase preview→confirm flow (the agent stages a
+    # preview + token, a human confirms, only then is it committed) and stays
+    # server-side-scoped to confluence_space_key. The Atlassian account behind
+    # confluence_api_token must hold write permission on that space.
+    # ------------------------------------------------------------------
+    - key: "confluence_write_enabled"
+      type: "string"
+      label: "Schreibzugriff aktivieren"
+      help: "'true' erlaubt dem Agenten, Seiten anzulegen/zu aktualisieren und Kommentare zu schreiben — immer erst nach expliziter Nutzer-Bestätigung der Vorschau. Default 'false' (nur lesen). Voraussetzung: das API-Token hat Schreibrechte im konfigurierten Space."
+      required: false
+      default: "false"
+
+    # ------------------------------------------------------------------
+    # Entity-Sync (proactive graph population via ctx.jobs.register in phase-2.3-iii)
+    # ------------------------------------------------------------------
+    - key: "confluence_entity_sync_enabled"
+      type: "string"
+      label: "Entity-Sync aktivieren"
+      help: "'true' registriert einen Background-Job, der Confluence-Pages periodisch in den Knowledge-Graph spiegelt (Pre-Capture für findEntityCapturedTurns)."
+      required: false
+      default: "false"
+    - key: "confluence_entity_sync_interval_hours"
+      type: "string"
+      label: "Entity-Sync Intervall (Stunden)"
+      help: "Zwischen 1 und 168. Default 12h."
+      required: false
+      default: "12"
+    - key: "confluence_entity_sync_page_size"
+      type: "string"
+      label: "Entity-Sync Page-Size"
+      help: "CQL search batch-Größe pro Call. Atlassian rate-limits — modest halten. Default 50."
+      required: false
+      default: "50"
+    - key: "confluence_entity_sync_max_pages"
+      type: "string"
+      label: "Entity-Sync Max Pages"
+      help: "Hard-cap pro Sync-Run. Default 2000."
+      required: false
+      default: "2000"
+
+playbook:
+  when_to_use: |
+    Wird implizit installiert, sobald CONFLUENCE_BASE_URL / CONFLUENCE_EMAIL /
+    CONFLUENCE_API_TOKEN in der .env stehen — oder explizit über /store. Liefert
+    den geteilten Confluence-Client + die Sub-Agent-Toolkit-Collection via
+    Service-Registry; der `de.byte5.agent.confluence`-Sub-Agent konsumiert
+    beides und stellt der Orchestrator-Ebene den `query_confluence_playbook`-
+    Domain-Tool zur Verfügung. Endanwender adressieren dieses Paket nicht
+    direkt — es ist Infrastruktur.
+
+permissions:
+  memory:
+    reads: []
+    writes: []
+  graph:
+    reads: []
+    writes: []
+  network:
+    outbound: []
+  filesystem:
+    scratch: false
+
+integrations:
+  - id: "confluence_rest"
+    kind: "http"
+    # GET reads always; POST/PUT to /rest/api/content only when
+    # confluence_write_enabled=true (create page / update page / add comment).
+    # Writes are data-EGRESS: user/LLM-generated content leaves the middleware
+    # and lands in Atlassian. Operators should treat enabling writes as a
+    # trust decision, independent of the read-side privacy recommendation above.
+    target: "Atlassian Confluence REST API (GET /rest/api/search + /rest/api/space + /rest/api/content; POST/PUT /rest/api/content when write enabled)"
+    auth_from: "confluence_api_token"
+    docs: "https://developer.atlassian.com/cloud/confluence/rest/v1/intro/"
+
+# Capabilities this plugin contributes to the kernel.
+#
+# Naming follows `docs/harness-platform/conventions/service-capabilities.md`
+# (normativ ab 2026-04-23). Dieses Plugin publiziert plugin-scoped Services
+# (§1.2 — `confluence.client`, `confluence.toolkit`) und konsumiert heute
+# zwei Kernel-Bridges (§3 — `entityRefBus`, `knowledgeGraph`) via
+# `ctx.services.get(...)`.
+#
+# Deferred zu S+8: sobald `@omadia/knowledge-graph` extrahiert wird
+# UND `entityRefBus` aus dem Kernel in die KG-activate() zieht, hier
+# ergänzen:
+#   requires:
+#     - "knowledgeGraph@^1"   # ConfluenceEntitySync → graph.ingestEntities
+#     - "entityRefBus@^1"     # createConfluenceTools → bus.publish
+# Siehe Briefing §Follow-Up-Wiring für die vollständige Migrations-
+# Checkliste mit per-Capability-Bullets:
+# docs/harness-platform/briefings/S+8-knowledge-graph.md
+provides: []
+
+# Builder service-type auto-discovery — see integration-odoo for the full
+# rationale. Only `confluence.client` is exposed: it is the method-bearing
+# read surface a builder agent consumes via `external_reads`. The
+# `confluence.toolkit` service (a LocalSubAgentTool[] for sub-agent
+# delegation) is intentionally NOT listed — it is not an external_reads
+# target and its element type is a plugin-api type, not a Confluence export.
+service_types:
+  - service: "confluence.client"
+    type:
+      from: "@omadia/integration-confluence"
+      name: "ConfluenceClient"

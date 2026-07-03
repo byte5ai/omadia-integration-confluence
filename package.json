@@ -1,0 +1,42 @@
+{
+  "name": "@omadia/integration-confluence",
+  "version": "0.3.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "description": "Confluence integration for the byte5 Harness — ConfluenceClient + createConfluenceTools factory + ConfluenceEntitySync. Ships as a kind:integration plugin; publishes 'confluence.client' and 'confluence.toolkit' services.",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test.mjs"
+  },
+  "peerDependencies": {
+    "@omadia/plugin-api": "*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "@types/node": "^25.6.0",
+    "zod": "^3.25.76",
+    "esbuild": "^0.24.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "homepage": "https://github.com/byte5ai/omadia-integration-confluence",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/byte5ai/omadia-integration-confluence.git"
+  },
+  "allowScripts": {
+    "esbuild@0.24.2": true
+  }
+}
