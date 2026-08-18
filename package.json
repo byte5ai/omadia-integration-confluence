@@ -1,6 +1,6 @@
 {
   "name": "@omadia/integration-confluence",
-  "version": "0.3.1",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -16,6 +16,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "package": "node scripts/build-zip.mjs",
+    "clean": "rm -rf dist out",
     "test": "node scripts/test.mjs"
   },
   "peerDependencies": {
