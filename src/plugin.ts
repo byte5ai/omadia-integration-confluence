@@ -1,6 +1,11 @@
-import type { PluginContext } from '@omadia/plugin-api';
+import type { PluginConnectionVerdict, PluginContext } from '@omadia/plugin-api';
 
 import { ConfluenceClient } from './confluenceClient.js';
+import {
+  CallTimeStatusReporter,
+  INCONCLUSIVE,
+  verdictFromProbe,
+} from './connectionStatus.js';
 import { readBoolean, readPositiveInt } from './configValues.js';
 import { ConfluenceEntitySync } from './confluenceEntitySync.js';
 import { createConfluenceTools } from './confluenceToolkit.js';
@@ -49,6 +54,10 @@ import type {
  *
  * Consumers (confluence-playbook sub-agent in the kernel) reach the services
  * via serviceRegistry.get<...>.
+ *
+ * Connection health (byte5ai/omadia#1453): the module also exports
+ * `verifyConnection`, which the kernel runs after each activation; and the
+ * client reports call-time auth refusals into `ctx.status` itself.
  */
 
 export const CONFLUENCE_CLIENT_SERVICE_NAME = 'confluence.client';
@@ -59,6 +68,38 @@ const KNOWLEDGE_GRAPH_SERVICE_NAME = 'knowledgeGraph';
 
 export interface ConfluencePluginHandle {
   close(): Promise<void>;
+}
+
+/** Kernel budget for the probe is 5s; abort our request before that so it
+ *  does not outlive the kernel's wait. */
+const PROBE_TIMEOUT_MS = 4_000;
+/** `user/current` is a few hundred bytes; cap generously, independent of the
+ *  operator's `confluence_proxy_max_bytes`. */
+const PROBE_MAX_BYTES = 64_000;
+
+/**
+ * byte5ai/omadia#1453 — kernel-called connection probe. One authenticated
+ * `GET /rest/api/user/current` through the plugin's own client (same
+ * transport as every other call).
+ *
+ *  - 401 / auth-403 (core's rule, see `authRejectionCause`) ⇒ `rejected`
+ *  - 2xx JSON naming a real user                          ⇒ `connected`
+ *  - timeout, 5xx, DNS, redirect, HTML, missing secrets,
+ *    anything else                                        ⇒ `inconclusive`
+ *
+ * Never throws. Builds a throwaway client without the call-time reporter: the
+ * kernel writes this verdict into `ctx.status` itself.
+ */
+export async function verifyConnection(
+  ctx: PluginContext,
+): Promise<PluginConnectionVerdict> {
+  try {
+    const client = await ConfluenceClient.fromContext(ctx, PROBE_MAX_BYTES);
+    const res = await client.probeCurrentUser(AbortSignal.timeout(PROBE_TIMEOUT_MS));
+    return verdictFromProbe(res);
+  } catch {
+    return INCONCLUSIVE;
+  }
 }
 
 export async function activate(
@@ -76,7 +117,13 @@ export async function activate(
     warn,
   );
 
-  const client = await ConfluenceClient.fromContext(ctx, maxBytes);
+  // #1453 — a real call refused for auth reasons flips ctx.status to `error`
+  // right away; the next successful call reports `ok` again.
+  const client = await ConfluenceClient.fromContext(ctx, maxBytes, {
+    observer: new CallTimeStatusReporter(ctx.status, (msg) => {
+      ctx.log(msg);
+    }),
+  });
 
   const entityRefBus = ctx.services.get<EntityRefBus>(ENTITY_REF_BUS_SERVICE_NAME);
   if (!entityRefBus) {

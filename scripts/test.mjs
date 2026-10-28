@@ -5,6 +5,9 @@
  * Node's built-in test runner (`node:test`) + assert drive the tests; esbuild
  * (already a dev dependency) transpiles each `tests/*.test.ts` into
  * `.test-build/` first, then `node --test` runs the transpiled output.
+ *
+ * The plugin is bundled from `src/`, so no `npm run build` is needed first.
+ * `@omadia/plugin-api` stays external: the plugin imports only types from it.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -40,7 +43,10 @@ await build({
   target: 'node20',
   sourcemap: 'inline',
   logLevel: 'error',
-  external: ['@omadia/integration-confluence', '@omadia/plugin-api'],
+  external: ['@omadia/plugin-api'],
+  alias: {
+    '@omadia/integration-confluence': join(pkgRoot, 'src', 'index.ts'),
+  },
 });
 
 const built = readdirSync(outDir)

@@ -74,8 +74,18 @@ class ConfluenceClient {
 
   // Add a footer comment to a page.
   async addComment(input: { pageId: string; bodyStorage: string }): Promise<unknown>;
+
+  // Connection probe used by the plugin's `verifyConnection` export
+  // (byte5ai/omadia#1453): raw answer of GET /rest/api/user/current, no
+  // retry, redirects refused. Not a data API — do not build on it.
+  async probeCurrentUser(signal?: AbortSignal): Promise<{ status: number; contentType: string; bodyText: string }>;
 }
 ```
+
+> **Connection status.** A call that Confluence refuses for authentication
+> (HTTP 401, or a 403 whose body names authentication) also sets the
+> integration's `ctx.status` to `error`; the next successful call sets it back
+> to `ok`. The error still reaches the caller as `ConfluenceClientError`.
 
 > **Prefer the toolkit's two-phase write tools over calling these directly.**
 > The `confluence_create_page` / `_update_page` / `_add_comment` tools stage a

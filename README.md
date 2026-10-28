@@ -35,8 +35,10 @@ npm test             # esbuild-transpile tests/ → node --test
 ```
 
 `@omadia/plugin-api` is a **peer dependency**, provided by the omadia host at
-runtime. For local typechecking, `tsconfig.json` maps it to a sibling
-`odoo-bot` checkout — see `paths` in `tsconfig.json`.
+runtime; the plugin imports only types from it. For local typechecking,
+`tsconfig.json` maps it to a sibling `odoo-bot` checkout — see `paths` in
+`tsconfig.json`; that checkout's `middleware/packages/plugin-api` must be at
+1.35.0 or newer (for the `verifyConnection` types) and built.
 
 ## Manifest
 
