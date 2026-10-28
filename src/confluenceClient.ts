@@ -1,5 +1,11 @@
 import type { PluginContext } from '@omadia/plugin-api';
 
+import {
+  authRejectionCause,
+  type ConnectionObserver,
+  type ProbeResponse,
+} from './connectionStatus.js';
+
 /**
  * Error raised by ConfluenceClient. `status` mirrors the upstream HTTP status
  * when available so the proxy route can translate it into a meaningful
@@ -23,7 +29,17 @@ interface ConfluenceClientOptions {
   baseUrl: string;
   spaceKey: string;
   maxBytes: number;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
+  /** Told about auth refusals / successes of real calls (#1453 call-time
+   *  status). Absent for the connection probe's throwaway client. */
+  observer?: ConnectionObserver;
+}
+
+/** The slice of `fetch` the client needs — `ctx.http.fetch` fits it. */
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+export interface ConfluenceClientContextOptions {
+  observer?: ConnectionObserver;
 }
 
 /** Storage-format input shared by every write method (XHTML, Confluence
@@ -69,7 +85,8 @@ export class ConfluenceClient {
   private readonly baseUrl: string;
   public readonly spaceKey: string;
   private readonly maxBytes: number;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
+  private readonly observer?: ConnectionObserver;
 
   constructor(opts: ConfluenceClientOptions) {
     const token = Buffer.from(`${opts.email}:${opts.apiToken}`, 'utf8').toString('base64');
@@ -78,7 +95,8 @@ export class ConfluenceClient {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
     this.spaceKey = opts.spaceKey;
     this.maxBytes = opts.maxBytes;
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? ((url, init) => fetch(url, init));
+    this.observer = opts.observer;
   }
 
   /**
@@ -87,10 +105,15 @@ export class ConfluenceClient {
    * used once an agent is installed via the new platform flow; byte5-internal
    * limits like max-bytes still flow from the Config until we add a
    * per-plugin "operational" settings layer.
+   *
+   * Requests go through `ctx.http` (manifest allow-list, rate limit) whenever
+   * the kernel provides it. Hosts that do not supply `ctx.http` keep the
+   * previous global-`fetch` behaviour.
    */
   static async fromContext(
     ctx: PluginContext,
     maxBytes: number,
+    options: ConfluenceClientContextOptions = {},
   ): Promise<ConfluenceClient> {
     const [email, apiToken] = await Promise.all([
       ctx.secrets.require('confluence_email').catch(() => ''),
@@ -102,13 +125,39 @@ export class ConfluenceClient {
     const resolvedEmail = email || ctx.config.require<string>('confluence_email');
     const baseUrl = ctx.config.require<string>('confluence_base_url');
     const spaceKey = ctx.config.require<string>('confluence_space_key');
+    const http = ctx.http;
     return new ConfluenceClient({
       email: resolvedEmail,
       apiToken,
       baseUrl,
       spaceKey,
       maxBytes,
+      ...(http ? { fetchImpl: (url: string, init?: RequestInit) => http.fetch(url, init) } : {}),
+      ...(options.observer ? { observer: options.observer } : {}),
     });
+  }
+
+  /**
+   * Connection probe for `verifyConnection` (#1453): one cheap authenticated
+   * `GET /rest/api/user/current`. Returns the raw answer for the caller to
+   * classify — it never throws on a non-2xx, never retries, does not notify
+   * the observer, and refuses redirects so the Authorization header cannot be
+   * replayed to another host. Network errors / aborts propagate.
+   */
+  async probeCurrentUser(signal?: AbortSignal): Promise<ProbeResponse> {
+    const url = new URL(`${this.baseUrl}/rest/api/user/current`);
+    const response = await this.fetchImpl(url.toString(), {
+      method: 'GET',
+      headers: { Authorization: this.authHeader, Accept: 'application/json' },
+      redirect: 'error',
+      ...(signal ? { signal } : {}),
+    });
+    const bodyText = await safeReadText(response, this.maxBytes);
+    return {
+      status: response.status,
+      contentType: response.headers.get('content-type') ?? '',
+      bodyText: bodyText === TRUNCATED_MARKER ? '' : bodyText,
+    };
   }
 
   async search(
@@ -233,6 +282,8 @@ export class ConfluenceClient {
       if (method === 'GET' && response.status >= 500 && attempt === 0) {
         return this.request(method, url, body, attempt + 1);
       }
+      const cause = authRejectionCause(response.status, bodyText);
+      if (cause) this.observer?.authRejected(cause);
       throw new ConfluenceClientError(
         `Confluence upstream ${response.status}`,
         response.status,
@@ -247,14 +298,16 @@ export class ConfluenceClient {
         413,
       );
     }
-    if (bodyText.length === 0) {
-      return null;
+    let parsed: unknown = null;
+    if (bodyText.length > 0) {
+      try {
+        parsed = JSON.parse(bodyText);
+      } catch {
+        throw new ConfluenceClientError('Confluence returned non-JSON body', 502, bodyText);
+      }
     }
-    try {
-      return JSON.parse(bodyText);
-    } catch {
-      throw new ConfluenceClientError('Confluence returned non-JSON body', 502, bodyText);
-    }
+    this.observer?.succeeded();
+    return parsed;
   }
 }
 

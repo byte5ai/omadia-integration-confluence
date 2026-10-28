@@ -3,7 +3,7 @@ schema_version: "1"
 identity:
   id: "@omadia/integration-confluence"
   name: "Confluence Connector"
-  version: "0.3.3"
+  version: "0.4.0"
   kind: "integration"
   domain: "confluence"
   description: "Atlassian Confluence REST-API-Layer (space-scoped) für den Confluence-Playbook-Sub-Agent + proaktive Page-Entity-Synchronisation in den Knowledge-Graph. Read-only per Default; optionaler Schreibzugriff (Seite anlegen/aktualisieren, Kommentar) via confluence_write_enabled, abgesichert durch zweistufigen Vorschau-/Bestätigungs-Flow. Publiziert kernel-Services 'confluence.client' (ConfluenceClient) + 'confluence.toolkit' (LocalSubAgentTool[])."
@@ -16,8 +16,11 @@ identity:
     - "integration"
     - "knowledge"
 
+# core = the host's @omadia/plugin-api. >=1.35 because the plugin imports the
+# runtime helper `classifyHttpAuthFailure` and exports `verifyConnection`
+# (byte5ai/omadia#1453) — an older host would fail the ESM import at link time.
 compat:
-  core: ">=1.0 <2.0"
+  core: ">=1.35.0 <2.0"
   node: ">=20"
 
 lifecycle:
@@ -149,7 +152,12 @@ permissions:
     reads: []
     writes: []
   network:
-    outbound: []
+    # Requests go through ctx.http (allow-list + rate limit) when the host
+    # provides it. The client authenticates with Atlassian-account e-mail +
+    # API token (Basic), which is the Confluence Cloud scheme, so the Cloud
+    # site domain is the one outbound host.
+    outbound:
+      - "*.atlassian.net"
   filesystem:
     scratch: false
 
@@ -161,7 +169,7 @@ integrations:
     # Writes are data-EGRESS: user/LLM-generated content leaves the middleware
     # and lands in Atlassian. Operators should treat enabling writes as a
     # trust decision, independent of the read-side privacy recommendation above.
-    target: "Atlassian Confluence REST API (GET /rest/api/search + /rest/api/space + /rest/api/content; POST/PUT /rest/api/content when write enabled)"
+    target: "Atlassian Confluence REST API (GET /rest/api/search + /rest/api/space + /rest/api/content + /rest/api/user/current as connection probe; POST/PUT /rest/api/content when write enabled)"
     auth_from: "confluence_api_token"
     docs: "https://developer.atlassian.com/cloud/confluence/rest/v1/intro/"
 

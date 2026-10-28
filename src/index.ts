@@ -13,7 +13,16 @@ export type {
   CreatePageInput,
   UpdatePageInput,
   AddCommentInput,
+  ConfluenceClientContextOptions,
+  FetchLike,
 } from './confluenceClient.js';
+
+export {
+  CallTimeStatusReporter,
+  STATUS_COPY,
+  verdictFromProbe,
+} from './connectionStatus.js';
+export type { ConnectionObserver, ProbeResponse } from './connectionStatus.js';
 
 export { ConfluenceWriteStore } from './confluenceWriteStore.js';
 export type { PendingWrite } from './confluenceWriteStore.js';
@@ -30,6 +39,7 @@ export type { WriteDeps } from './confluenceWriteCore.js';
 
 export {
   activate,
+  verifyConnection,
   CONFLUENCE_CLIENT_SERVICE_NAME,
   CONFLUENCE_TOOLKIT_SERVICE_NAME,
 } from './plugin.js';
