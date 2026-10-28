@@ -233,8 +233,11 @@ export class ConfluenceClient {
       if (method === 'GET' && response.status >= 500 && attempt === 0) {
         return this.request(method, url, body, attempt + 1);
       }
+      const detail = upstreamErrorDetail(bodyText);
       throw new ConfluenceClientError(
-        `Confluence upstream ${response.status}`,
+        detail
+          ? `Confluence upstream ${response.status}: ${detail}`
+          : `Confluence upstream ${response.status}`,
         response.status,
         bodyText,
       );
@@ -259,6 +262,29 @@ export class ConfluenceClient {
 }
 
 const TRUNCATED_MARKER = '__CONFLUENCE_BODY_TRUNCATED__';
+const MAX_ERROR_DETAIL_CHARS = 300;
+
+/**
+ * Atlassian's own error text (`{"message":"Could not parse cql : …"}`), so the
+ * sub-agent can see WHY a call failed and fix its input instead of guessing
+ * (byte5ai/omadia#1504). Undefined for non-JSON or message-less bodies.
+ */
+function upstreamErrorDetail(bodyText: string): string | undefined {
+  if (bodyText === TRUNCATED_MARKER) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(bodyText);
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    const message = (parsed as { message?: unknown }).message;
+    if (typeof message !== 'string') return undefined;
+    const text = message.replace(/\s+/g, ' ').trim();
+    if (text.length === 0) return undefined;
+    return text.length > MAX_ERROR_DETAIL_CHARS
+      ? `${text.slice(0, MAX_ERROR_DETAIL_CHARS)}…`
+      : text;
+  } catch {
+    return undefined;
+  }
+}
 
 async function safeReadText(response: Response, maxBytes: number): Promise<string> {
   const text = await response.text();
