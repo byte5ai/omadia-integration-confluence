@@ -6,6 +6,7 @@ import {
   INCONCLUSIVE,
   verdictFromProbe,
 } from './connectionStatus.js';
+import { readBoolean, readPositiveInt } from './configValues.js';
 import { ConfluenceEntitySync } from './confluenceEntitySync.js';
 import { createConfluenceTools } from './confluenceToolkit.js';
 import { ConfluenceWriteStore } from './confluenceWriteStore.js';
@@ -69,16 +70,6 @@ export interface ConfluencePluginHandle {
   close(): Promise<void>;
 }
 
-function parseBoolean(raw: string | undefined): boolean {
-  return String(raw ?? '').trim().toLowerCase() === 'true';
-}
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
 /** Kernel budget for the probe is 5s; abort our request before that so it
  *  does not outlive the kernel's wait. */
 const PROBE_TIMEOUT_MS = 4_000;
@@ -115,10 +106,15 @@ export async function activate(
   ctx: PluginContext,
 ): Promise<ConfluencePluginHandle> {
   ctx.log('activating confluence integration');
+  const warn = (message: string): void => {
+    ctx.log(message);
+  };
 
-  const maxBytes = parsePositiveInt(
-    ctx.config.get<string>('confluence_proxy_max_bytes'),
+  const maxBytes = readPositiveInt(
+    'confluence_proxy_max_bytes',
+    ctx.config.get<unknown>('confluence_proxy_max_bytes'),
     200_000,
+    warn,
   );
 
   // #1453 — a real call refused for auth reasons flips ctx.status to `error`
@@ -139,8 +135,11 @@ export async function activate(
   // Opt-in write access. Default off — the toolkit only gains the
   // create/update/comment + commit tools when the operator explicitly sets
   // confluence_write_enabled=true. The store backs the two-phase confirm flow.
-  const writeEnabled = parseBoolean(
-    ctx.config.get<string>('confluence_write_enabled'),
+  const writeEnabled = readBoolean(
+    'confluence_write_enabled',
+    ctx.config.get<unknown>('confluence_write_enabled'),
+    false,
+    warn,
   );
   const writeStore = writeEnabled ? new ConfluenceWriteStore() : undefined;
 
@@ -174,8 +173,11 @@ export async function activate(
   // quickly; subsequent runs go through the scheduler.
   let disposeEntitySync: (() => void) | undefined;
   let initialSyncTimer: NodeJS.Timeout | undefined;
-  const entitySyncEnabled = parseBoolean(
-    ctx.config.get<string>('confluence_entity_sync_enabled'),
+  const entitySyncEnabled = readBoolean(
+    'confluence_entity_sync_enabled',
+    ctx.config.get<unknown>('confluence_entity_sync_enabled'),
+    false,
+    warn,
   );
   if (entitySyncEnabled) {
     const graph = ctx.services.get<KnowledgeGraph>(KNOWLEDGE_GRAPH_SERVICE_NAME);
@@ -184,17 +186,23 @@ export async function activate(
         `[confluence] confluence_entity_sync_enabled=true requires '${KNOWLEDGE_GRAPH_SERVICE_NAME}' service (kernel must publish before plugin activation)`,
       );
     }
-    const intervalHours = parsePositiveInt(
-      ctx.config.get<string>('confluence_entity_sync_interval_hours'),
+    const intervalHours = readPositiveInt(
+      'confluence_entity_sync_interval_hours',
+      ctx.config.get<unknown>('confluence_entity_sync_interval_hours'),
       12,
+      warn,
     );
-    const pageSize = parsePositiveInt(
-      ctx.config.get<string>('confluence_entity_sync_page_size'),
+    const pageSize = readPositiveInt(
+      'confluence_entity_sync_page_size',
+      ctx.config.get<unknown>('confluence_entity_sync_page_size'),
       50,
+      warn,
     );
-    const maxPages = parsePositiveInt(
-      ctx.config.get<string>('confluence_entity_sync_max_pages'),
+    const maxPages = readPositiveInt(
+      'confluence_entity_sync_max_pages',
+      ctx.config.get<unknown>('confluence_entity_sync_max_pages'),
       2000,
+      warn,
     );
     const sync = new ConfluenceEntitySync({
       confluence: client,

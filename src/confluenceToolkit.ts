@@ -86,7 +86,7 @@ function searchTool(deps: Deps): LocalSubAgentTool {
   return {
     spec: {
       name: 'confluence_search',
-      description: `Search Confluence pages via CQL. Scope is hard-locked to the configured space (${deps.client.spaceKey}) — no need to include \`space = …\` yourself. Returns the raw Confluence search result JSON.`,
+      description: `Search Confluence pages via CQL. Scope is hard-locked to the configured space (${deps.client.spaceKey}) — no need to include \`space = …\` yourself. A trailing \`ORDER BY <field> [ASC|DESC]\` is supported (e.g. \`type = page ORDER BY lastmodified DESC\`). Returns the raw Confluence search result JSON.`,
       input_schema: {
         type: 'object',
         properties: {
