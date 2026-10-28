@@ -52,6 +52,13 @@ describe('wrapWithSpaceScope', () => {
     );
   });
 
+  it('splits an ORDER BY directly after a closing parenthesis', () => {
+    assert.equal(
+      wrapWithSpaceScope('(type = page)ORDER BY title', 'X'),
+      'space = "X" AND ((type = page)) ORDER BY title',
+    );
+  });
+
   it('ignores "order by" inside parentheses', () => {
     assert.equal(
       wrapWithSpaceScope('(title ~ "x order by y")', 'X'),

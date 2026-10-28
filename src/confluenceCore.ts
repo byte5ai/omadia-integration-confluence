@@ -75,7 +75,7 @@ export function splitCql(cql: string): { where: string; orderBy?: string } {
       }
     } else if (
       depth === 0 &&
-      (i === 0 || /\s/.test(cql[i - 1] ?? '')) &&
+      (i === 0 || /[\s)]/.test(cql[i - 1] ?? '')) &&
       /^order\s+by\s/i.test(cql.slice(i))
     ) {
       orderByAt = i;
