@@ -3,7 +3,7 @@ schema_version: "1"
 identity:
   id: "@omadia/integration-confluence"
   name: "Confluence Connector"
-  version: "0.3.3"
+  version: "0.3.4"
   kind: "integration"
   domain: "confluence"
   description: "Atlassian Confluence REST-API-Layer (space-scoped) für den Confluence-Playbook-Sub-Agent + proaktive Page-Entity-Synchronisation in den Knowledge-Graph. Read-only per Default; optionaler Schreibzugriff (Seite anlegen/aktualisieren, Kommentar) via confluence_write_enabled, abgesichert durch zweistufigen Vorschau-/Bestätigungs-Flow. Publiziert kernel-Services 'confluence.client' (ConfluenceClient) + 'confluence.toolkit' (LocalSubAgentTool[])."
@@ -61,7 +61,7 @@ privacy:
 setup:
   fields:
     - key: "confluence_base_url"
-      type: "string"
+      type: "url"
       label: "Confluence Base-URL"
       help: "Base-URL der Confluence-Instanz, z.B. https://your-instance.atlassian.net/wiki. Kein trailing slash nötig."
       required: true
@@ -82,54 +82,54 @@ setup:
       required: false
       default: "HOME"
     - key: "confluence_proxy_max_bytes"
-      type: "string"
+      type: "integer"
       label: "Max Response-Size (Bytes)"
       help: "Kappt Confluence-Antworten über diesem Limit — Atlassian-Seiten mit body.view können leicht mehrere MB werden. Default 200000."
       required: false
-      default: "200000"
+      default: 200000
 
     # ------------------------------------------------------------------
     # Write access (opt-in). Default off → toolkit stays read-only. When
-    # 'true', the create/update/comment + commit tools are registered. Every
+    # enabled, the create/update/comment + commit tools are registered. Every
     # write goes through a two-phase preview→confirm flow (the agent stages a
     # preview + token, a human confirms, only then is it committed) and stays
     # server-side-scoped to confluence_space_key. The Atlassian account behind
     # confluence_api_token must hold write permission on that space.
     # ------------------------------------------------------------------
     - key: "confluence_write_enabled"
-      type: "string"
+      type: "boolean"
       label: "Schreibzugriff aktivieren"
-      help: "'true' erlaubt dem Agenten, Seiten anzulegen/zu aktualisieren und Kommentare zu schreiben — immer erst nach expliziter Nutzer-Bestätigung der Vorschau. Default 'false' (nur lesen). Voraussetzung: das API-Token hat Schreibrechte im konfigurierten Space."
+      help: "Erlaubt dem Agenten, Seiten anzulegen/zu aktualisieren und Kommentare zu schreiben — immer erst nach expliziter Nutzer-Bestätigung der Vorschau. Default aus (nur lesen). Voraussetzung: das API-Token hat Schreibrechte im konfigurierten Space."
       required: false
-      default: "false"
+      default: false
 
     # ------------------------------------------------------------------
     # Entity-Sync (proactive graph population via ctx.jobs.register in phase-2.3-iii)
     # ------------------------------------------------------------------
     - key: "confluence_entity_sync_enabled"
-      type: "string"
+      type: "boolean"
       label: "Entity-Sync aktivieren"
-      help: "'true' registriert einen Background-Job, der Confluence-Pages periodisch in den Knowledge-Graph spiegelt (Pre-Capture für findEntityCapturedTurns)."
+      help: "Registriert einen Background-Job, der Confluence-Pages periodisch in den Knowledge-Graph spiegelt (Pre-Capture für findEntityCapturedTurns)."
       required: false
-      default: "false"
+      default: false
     - key: "confluence_entity_sync_interval_hours"
-      type: "string"
+      type: "integer"
       label: "Entity-Sync Intervall (Stunden)"
       help: "Zwischen 1 und 168. Default 12h."
       required: false
-      default: "12"
+      default: 12
     - key: "confluence_entity_sync_page_size"
-      type: "string"
+      type: "integer"
       label: "Entity-Sync Page-Size"
       help: "CQL search batch-Größe pro Call. Atlassian rate-limits — modest halten. Default 50."
       required: false
-      default: "50"
+      default: 50
     - key: "confluence_entity_sync_max_pages"
-      type: "string"
+      type: "integer"
       label: "Entity-Sync Max Pages"
       help: "Hard-cap pro Sync-Run. Default 2000."
       required: false
-      default: "2000"
+      default: 2000
 
 playbook:
   when_to_use: |

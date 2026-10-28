@@ -38,6 +38,8 @@ export type { ConfluencePluginHandle } from './plugin.js';
 export {
   ALLOWED_EXPAND,
   wrapWithSpaceScope,
+  splitCql,
+  CqlScopeError,
   search,
   getPage,
   getPageByTitle,

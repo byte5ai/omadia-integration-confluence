@@ -20,9 +20,93 @@ export const ALLOWED_EXPAND = new Set<string>([
  * Defense-in-depth: always inject a space-scope into user-supplied CQL,
  * regardless of what the agent wrote. Parenthesise the incoming CQL so
  * operator precedence stays safe (`a OR b` shouldn't split our AND).
+ *
+ * CQL only accepts `ORDER BY` at the very end of the whole query, so a
+ * trailing `ORDER BY …` is split off and re-appended AFTER the scoped
+ * expression (byte5ai/omadia#1504) — `space = "X" AND (a ORDER BY b)` is a
+ * Confluence 400, `space = "X" AND (a) ORDER BY b` is not.
+ *
+ * Throws `CqlScopeError` when the expression's parentheses do not balance:
+ * an unbalanced `)` would close our scope group early and let the rest of
+ * the query (`… ) OR (space = "OTHER"`) escape the configured space.
  */
 export function wrapWithSpaceScope(cql: string, spaceKey: string): string {
-  return `space = "${spaceKey}" AND (${cql})`;
+  const { where, orderBy } = splitCql(cql);
+  const scoped = `space = "${spaceKey}" AND (${where})`;
+  return orderBy ? `${scoped} ORDER BY ${orderBy}` : scoped;
+}
+
+export class CqlScopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CqlScopeError';
+  }
+}
+
+/** Sort keys only: `field [ASC|DESC]`, comma-separated. Nothing that could
+ *  carry a condition, a quote or a parenthesis out of the scope group. */
+const ORDER_BY_CLAUSE =
+  /^[A-Za-z_][\w.-]*(\s+(asc|desc))?(\s*,\s*[A-Za-z_][\w.-]*(\s+(asc|desc))?)*$/i;
+
+/**
+ * Split CQL into its condition and a trailing top-level `ORDER BY` clause.
+ * `ORDER BY` inside a quoted string (`text ~ "order by"`) or inside
+ * parentheses is part of the condition, not a sort clause.
+ */
+export function splitCql(cql: string): { where: string; orderBy?: string } {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let orderByAt = -1;
+  for (let i = 0; i < cql.length; i++) {
+    const ch = cql[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth < 0) {
+        throw new CqlScopeError(
+          'CQL has an unmatched ")" — balance the parentheses.',
+        );
+      }
+    } else if (
+      depth === 0 &&
+      (i === 0 || /\s/.test(cql[i - 1] ?? '')) &&
+      /^order\s+by\s/i.test(cql.slice(i))
+    ) {
+      orderByAt = i;
+    }
+  }
+  if (quote) {
+    throw new CqlScopeError('CQL has an unterminated quoted string.');
+  }
+  if (depth !== 0) {
+    throw new CqlScopeError(
+      'CQL has an unmatched "(" — balance the parentheses.',
+    );
+  }
+  if (orderByAt < 0) return { where: cql };
+
+  const where = cql.slice(0, orderByAt).trim();
+  const orderBy = cql
+    .slice(orderByAt)
+    .replace(/^order\s+by\s+/i, '')
+    .trim();
+  if (where.length === 0) {
+    throw new CqlScopeError(
+      'CQL needs a condition before ORDER BY, e.g. `type = page ORDER BY lastmodified DESC`.',
+    );
+  }
+  if (!ORDER_BY_CLAUSE.test(orderBy)) {
+    throw new CqlScopeError(
+      `ORDER BY accepts only field names with optional ASC/DESC, got "${orderBy}".`,
+    );
+  }
+  return { where, orderBy };
 }
 
 interface Deps {
