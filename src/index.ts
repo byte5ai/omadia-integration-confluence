@@ -19,7 +19,7 @@ export type {
 
 export {
   CallTimeStatusReporter,
-  STATUS_COPY,
+  authRejectionCause,
   verdictFromProbe,
 } from './connectionStatus.js';
 export type { ConnectionObserver, ProbeResponse } from './connectionStatus.js';

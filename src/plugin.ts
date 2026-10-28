@@ -88,12 +88,13 @@ const PROBE_MAX_BYTES = 64_000;
 
 /**
  * byte5ai/omadia#1453 — kernel-called connection probe. One authenticated
- * `GET /rest/api/user/current` through the plugin's client and `ctx.http`.
+ * `GET /rest/api/user/current` through the plugin's own client (same
+ * transport as every other call).
  *
- *  - 401 / auth-403 (per core's `classifyHttpAuthFailure`) ⇒ `rejected`
- *  - 2xx JSON naming a real user                         ⇒ `connected`
- *  - timeout, 5xx, DNS, redirect, HTML, host not on the
- *    allow-list, missing secrets, anything else           ⇒ `inconclusive`
+ *  - 401 / auth-403 (core's rule, see `authRejectionCause`) ⇒ `rejected`
+ *  - 2xx JSON naming a real user                          ⇒ `connected`
+ *  - timeout, 5xx, DNS, redirect, HTML, missing secrets,
+ *    anything else                                        ⇒ `inconclusive`
  *
  * Never throws. Builds a throwaway client without the call-time reporter: the
  * kernel writes this verdict into `ctx.status` itself.
@@ -102,9 +103,6 @@ export async function verifyConnection(
   ctx: PluginContext,
 ): Promise<PluginConnectionVerdict> {
   try {
-    // ctx.http, not global fetch (allow-list, SSRF guard, rate limit). A host
-    // without it gets no verdict rather than an unguarded request.
-    if (!ctx.http) return INCONCLUSIVE;
     const client = await ConfluenceClient.fromContext(ctx, PROBE_MAX_BYTES);
     const res = await client.probeCurrentUser(AbortSignal.timeout(PROBE_TIMEOUT_MS));
     return verdictFromProbe(res);

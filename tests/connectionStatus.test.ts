@@ -1,10 +1,11 @@
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
 import type { PluginActionStatus, PluginContext } from '@omadia/plugin-api';
 import {
   activate,
   verifyConnection,
   CallTimeStatusReporter,
+  authRejectionCause,
   ConfluenceClient,
   ConfluenceClientError,
   CONFLUENCE_CLIENT_SERVICE_NAME,
@@ -41,7 +42,6 @@ interface FakeCtx {
 
 function fakeCtx(opts: {
   respond?: Responder;
-  withHttp?: boolean;
   secrets?: Record<string, string>;
 }): FakeCtx {
   const calls: Call[] = [];
@@ -56,6 +56,12 @@ function fakeCtx(opts: {
     confluence_space_key: 'ENG',
   };
   const respond = opts.respond ?? (() => jsonResponse(200, USER));
+  // The client keeps its existing transport (global fetch) — ctx.http is
+  // deliberately NOT used in this release; it is present here as a trap.
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init });
+    return respond(String(url), init);
+  }) as typeof fetch;
   const ctx = {
     agentId: '@omadia/integration-confluence',
     log: () => undefined,
@@ -88,19 +94,19 @@ function fakeCtx(opts: {
       },
       clear: () => undefined,
     },
-    ...(opts.withHttp === false
-      ? {}
-      : {
-          http: {
-            fetch: async (url: string, init?: RequestInit) => {
-              calls.push({ url, init });
-              return respond(url, init);
-            },
-          },
-        }),
+    http: {
+      fetch: async () => {
+        throw new Error('ctx.http must not be used');
+      },
+    },
   } as unknown as PluginContext;
   return { ctx, calls, reports, provided };
 }
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
 
 function clientWith(respond: Responder, reports: PluginActionStatus[]): ConfluenceClient {
   return new ConfluenceClient({
@@ -117,7 +123,7 @@ function clientWith(respond: Responder, reports: PluginActionStatus[]): Confluen
 // --- verifyConnection ------------------------------------------------------
 
 describe('verifyConnection', () => {
-  it('probes GET /rest/api/user/current through ctx.http with Basic auth, refusing redirects', async () => {
+  it('probes GET /rest/api/user/current via the client transport (not ctx.http) with Basic auth, refusing redirects', async () => {
     const { ctx, calls } = fakeCtx({});
     const verdict = await verifyConnection(ctx);
     assert.equal(verdict.status, 'connected');
@@ -132,27 +138,21 @@ describe('verifyConnection', () => {
     assert.ok(calls[0]!.init?.signal, 'probe request carries an abort signal');
   });
 
-  it('2xx JSON with a real user ⇒ connected, with plugin-owned title', async () => {
+  it('2xx JSON with a real user ⇒ connected, without copy', async () => {
     const { ctx } = fakeCtx({ respond: () => jsonResponse(200, USER) });
-    assert.deepEqual(await verifyConnection(ctx), { status: 'connected', title: 'Verbunden' });
+    assert.deepEqual(await verifyConnection(ctx), { status: 'connected' });
   });
 
-  it('401 ⇒ rejected with cause http_401 and copy', async () => {
+  it('401 ⇒ rejected with cause http_401, without copy', async () => {
     const { ctx } = fakeCtx({ respond: () => textResponse(401, 'Unauthorized', 'text/plain') });
-    const verdict = await verifyConnection(ctx);
-    assert.equal(verdict.status, 'rejected');
-    assert.equal(verdict.cause, 'http_401');
-    assert.equal(verdict.title, 'Nicht verbunden');
-    assert.match(verdict.detail ?? '', /HTTP 401/);
+    assert.deepEqual(await verifyConnection(ctx), { status: 'rejected', cause: 'http_401' });
   });
 
   it('403 whose body names authentication ⇒ rejected http_403_auth', async () => {
     const { ctx } = fakeCtx({
       respond: () => jsonResponse(403, { message: 'Authentication failed' }),
     });
-    const verdict = await verifyConnection(ctx);
-    assert.equal(verdict.status, 'rejected');
-    assert.equal(verdict.cause, 'http_403_auth');
+    assert.deepEqual(await verifyConnection(ctx), { status: 'rejected', cause: 'http_403_auth' });
   });
 
   it('plain permission 403 ⇒ inconclusive', async () => {
@@ -204,22 +204,6 @@ describe('verifyConnection', () => {
     assert.deepEqual(await verifyConnection(ctx), { status: 'inconclusive' });
   });
 
-  it('no ctx.http ⇒ inconclusive without any request', async () => {
-    const { ctx } = fakeCtx({ withHttp: false });
-    const realFetch = globalThis.fetch;
-    let globalCalls = 0;
-    globalThis.fetch = (async () => {
-      globalCalls += 1;
-      return jsonResponse(200, USER);
-    }) as typeof fetch;
-    try {
-      assert.deepEqual(await verifyConnection(ctx), { status: 'inconclusive' });
-      assert.equal(globalCalls, 0);
-    } finally {
-      globalThis.fetch = realFetch;
-    }
-  });
-
   it('missing API token ⇒ inconclusive, never throws', async () => {
     const { ctx, calls } = fakeCtx({ secrets: { confluence_email: 'bot@example.com' } });
     assert.deepEqual(await verifyConnection(ctx), { status: 'inconclusive' });
@@ -238,10 +222,7 @@ describe('call-time status reporting', () => {
       assert.equal(err.status, 401);
       return true;
     });
-    assert.equal(reports.length, 1);
-    assert.equal(reports[0]!.state, 'error');
-    assert.equal(reports[0]!.title, 'Nicht verbunden');
-    assert.match(reports[0]!.detail ?? '', /HTTP 401/);
+    assert.deepEqual(reports, [{ state: 'error' }]);
   });
 
   it('a later successful call reports ok again', async () => {
@@ -254,11 +235,7 @@ describe('call-time status reporting', () => {
     await assert.rejects(client.getSpace());
     status = 200;
     assert.deepEqual(await client.getSpace(), { key: 'ENG' });
-    assert.deepEqual(
-      reports.map((r) => r.state),
-      ['error', 'ok'],
-    );
-    assert.equal(reports[1]!.title, 'Verbunden');
+    assert.deepEqual(reports, [{ state: 'error' }, { state: 'ok' }]);
     // Further successes do not re-report.
     await client.getSpace();
     assert.equal(reports.length, 2);
@@ -314,7 +291,7 @@ describe('call-time status reporting', () => {
     await assert.rejects(client.getSpace(), ConfluenceClientError);
   });
 
-  it('activate() wires the reporter into ctx.status and routes calls through ctx.http', async () => {
+  it('activate() wires the reporter into ctx.status and keeps the existing transport', async () => {
     let status = 401;
     const { ctx, calls, reports, provided } = fakeCtx({
       respond: () =>
@@ -324,7 +301,7 @@ describe('call-time status reporting', () => {
     try {
       const client = provided.get(CONFLUENCE_CLIENT_SERVICE_NAME) as ConfluenceClient;
       await assert.rejects(client.getSpace());
-      assert.equal(calls.length, 1, 'request went through ctx.http');
+      assert.equal(calls.length, 1, 'request went through the existing transport');
       assert.deepEqual(
         reports.map((r) => r.state),
         ['error'],
@@ -339,4 +316,28 @@ describe('call-time status reporting', () => {
       await handle.close();
     }
   });
+});
+
+// --- local copy of core's auth-refusal rule ----------------------------------
+
+describe('authRejectionCause (mirror of core classifyHttpAuthFailure)', () => {
+  const cases: Array<[number, string | undefined, string | undefined]> = [
+    [401, undefined, 'http_401'],
+    [401, '<html>login</html>', 'http_401'],
+    [403, '{"message":"Authentication failed"}', 'http_403_auth'],
+    [403, 'UNAUTHENTICATED', 'http_403_auth'],
+    [403, 'invalid_token', 'http_403_auth'],
+    [403, 'Invalid API key', 'http_403_auth'],
+    [403, 'invalid x-api-key', 'http_403_auth'],
+    [403, '{"message":"Current user not permitted to use Confluence"}', undefined],
+    [403, undefined, undefined],
+    [404, 'authentication', undefined],
+    [500, 'authentication', undefined],
+    [200, '', undefined],
+  ];
+  for (const [status, body, expected] of cases) {
+    it(`${String(status)} ${JSON.stringify(body ?? null)} ⇒ ${String(expected)}`, () => {
+      assert.equal(authRejectionCause(status, body), expected);
+    });
+  }
 });

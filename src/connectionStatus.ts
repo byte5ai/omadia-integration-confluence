@@ -1,9 +1,8 @@
-import {
-  classifyHttpAuthFailure,
-  type ConnectionRejectionCause,
-  type PluginActionStatus,
-  type PluginConnectionVerdict,
-  type StatusAccessor,
+import type {
+  ConnectionRejectionCause,
+  PluginActionStatus,
+  PluginConnectionVerdict,
+  StatusAccessor,
 } from '@omadia/plugin-api';
 
 /**
@@ -18,30 +17,18 @@ import {
  *    by a real request (see `CallTimeStatusReporter`).
  *
  * The rule both follow is core's: only an EXPLICIT authentication refusal
- * (HTTP 401, or a 403 whose body names authentication — decided by
- * `classifyHttpAuthFailure`, never by hand here) means "bad credentials".
- * A 5xx, a timeout, a DNS failure, a redirect or a captive-portal HTML page is
- * "we don't know" and must not turn the plugin red, because a red status also
- * withholds the plugin's tools from the orchestrator.
+ * (HTTP 401, or a 403 whose body names authentication) means "bad
+ * credentials". A 5xx, a timeout, a DNS failure, a redirect or a
+ * captive-portal HTML page is "we don't know" and must not turn the plugin
+ * red, because a red status also withholds the plugin's tools from the
+ * orchestrator.
  *
- * The kernel ships no operator-facing copy, so the strings below are the
- * plugin's own. They are German like the rest of this plugin's manifest.
+ * No `title`/`detail` is reported: the plugin cannot see the operator's
+ * locale, and the web-ui supplies its own localized copy for each state.
+ *
+ * Only TYPES are imported from `@omadia/plugin-api`, so this module loads on
+ * hosts older than plugin-api 1.35.0 as well.
  */
-
-/** Operator-facing copy for the status badge/banner. */
-export const STATUS_COPY = {
-  connectedTitle: 'Verbunden',
-  rejectedTitle: 'Nicht verbunden',
-  rejectedDetail: (cause: ConnectionRejectionCause): string =>
-    `Confluence hat E-Mail/API-Token abgelehnt (${CAUSE_LABEL[cause]}). ` +
-    'Zugangsdaten in den Setup-Feldern prüfen.',
-} as const;
-
-const CAUSE_LABEL: Readonly<Record<ConnectionRejectionCause, string>> = {
-  http_401: 'HTTP 401',
-  http_403_auth: 'HTTP 403',
-  protocol_auth_failure: 'Anmeldung fehlgeschlagen',
-};
 
 /** The raw answer of the probe request — what `verdictFromProbe` classifies. */
 export interface ProbeResponse {
@@ -54,24 +41,45 @@ export const INCONCLUSIVE: PluginConnectionVerdict = Object.freeze({
   status: 'inconclusive',
 });
 
+/** Body markers of a 403 that is an authentication refusal rather than a
+ *  permission/plan/region refusal. Same list as core's helper. */
+const AUTH_403_MARKERS = [
+  'unauthenticated',
+  'authentication',
+  'invalid_token',
+  'invalid api key',
+  'invalid x-api-key',
+] as const;
+
 /**
- * Explicit auth refusal for one upstream exchange, or `undefined`. Thin seam
- * over core's helper so the client and the probe share one decision.
+ * Explicit auth refusal for one upstream exchange, or `undefined`.
+ *
+ * Local copy of core's `classifyHttpAuthFailure` (`@omadia/plugin-api` 1.35.0,
+ * `pluginContext.ts`), inlined on purpose: an ESM named import of a runtime
+ * export the host lacks fails the whole module at link time, which would stop
+ * this plugin from loading on older hosts. Keep the two in step — a 401 is
+ * always a refusal; a 403 only when its body names authentication itself (an
+ * Atlassian 403 for a missing space/product permission is NOT one).
  */
 export function authRejectionCause(
   status: number,
   bodyText: string | undefined,
 ): ConnectionRejectionCause | undefined {
-  return classifyHttpAuthFailure(status, bodyText);
+  if (status === 401) return 'http_401';
+  if (status !== 403) return undefined;
+  const body = (bodyText ?? '').toLowerCase();
+  return AUTH_403_MARKERS.some((marker) => body.includes(marker))
+    ? 'http_403_auth'
+    : undefined;
 }
 
 /**
  * Classify the answer of `GET /rest/api/user/current`.
  *
- *  - explicit auth refusal                     ⇒ `rejected` (with its cause)
+ *  - explicit auth refusal                       ⇒ `rejected` (with its cause)
  *  - 2xx JSON naming a real (non-anonymous) user ⇒ `connected`
  *  - everything else (non-2xx, HTML, unparseable JSON, anonymous user)
- *                                              ⇒ `inconclusive`
+ *                                                ⇒ `inconclusive`
  *
  * A 2xx alone is not a pass: a captive portal or proxy login page answers 200
  * with HTML. An anonymous user is not a pass either (the site let us in
@@ -80,19 +88,10 @@ export function authRejectionCause(
  */
 export function verdictFromProbe(res: ProbeResponse): PluginConnectionVerdict {
   const cause = authRejectionCause(res.status, res.bodyText);
-  if (cause) {
-    return {
-      status: 'rejected',
-      cause,
-      title: STATUS_COPY.rejectedTitle,
-      detail: STATUS_COPY.rejectedDetail(cause),
-    };
-  }
+  if (cause) return { status: 'rejected', cause };
   if (res.status < 200 || res.status >= 300) return INCONCLUSIVE;
   if (!res.contentType.toLowerCase().includes('json')) return INCONCLUSIVE;
-  return isAuthenticatedUser(res.bodyText)
-    ? { status: 'connected', title: STATUS_COPY.connectedTitle }
-    : INCONCLUSIVE;
+  return isAuthenticatedUser(res.bodyText) ? { status: 'connected' } : INCONCLUSIVE;
 }
 
 function isAuthenticatedUser(bodyText: string): boolean {
@@ -130,7 +129,7 @@ export interface ConnectionObserver {
  * other writer set.
  *
  * Every rejection is re-reported (not only the first): the kernel's probe
- * writes through the same channel and may have reported `connected` in
+ * writes through the same channel and may have cleared the status in
  * between, and the kernel re-stamps `checked_at` on each report.
  */
 export class CallTimeStatusReporter implements ConnectionObserver {
@@ -141,17 +140,13 @@ export class CallTimeStatusReporter implements ConnectionObserver {
     private readonly log: (msg: string) => void = () => undefined,
   ) {}
 
-  authRejected(cause: ConnectionRejectionCause): void {
-    this.write({
-      state: 'error',
-      title: STATUS_COPY.rejectedTitle,
-      detail: STATUS_COPY.rejectedDetail(cause),
-    }, true);
+  authRejected(_cause: ConnectionRejectionCause): void {
+    this.write({ state: 'error' }, true);
   }
 
   succeeded(): void {
     if (!this.raisedError) return;
-    this.write({ state: 'ok', title: STATUS_COPY.connectedTitle }, false);
+    this.write({ state: 'ok' }, false);
   }
 
   private write(status: PluginActionStatus, raisedError: boolean): void {
@@ -159,6 +154,7 @@ export class CallTimeStatusReporter implements ConnectionObserver {
       this.status.report(status);
       this.raisedError = raisedError;
     } catch (err) {
+      // Also covers hosts without `ctx.status` (older plugin-api).
       this.log(
         `[confluence] could not report status '${status.state}': ${
           err instanceof Error ? err.message : String(err)

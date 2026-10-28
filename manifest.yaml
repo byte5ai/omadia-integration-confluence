@@ -16,11 +16,8 @@ identity:
     - "integration"
     - "knowledge"
 
-# core = the host's @omadia/plugin-api. >=1.35 because the plugin imports the
-# runtime helper `classifyHttpAuthFailure` and exports `verifyConnection`
-# (byte5ai/omadia#1453) — an older host would fail the ESM import at link time.
 compat:
-  core: ">=1.35.0 <2.0"
+  core: ">=1.0 <2.0"
   node: ">=20"
 
 lifecycle:
@@ -152,12 +149,7 @@ permissions:
     reads: []
     writes: []
   network:
-    # Requests go through ctx.http (allow-list + rate limit) when the host
-    # provides it. The client authenticates with Atlassian-account e-mail +
-    # API token (Basic), which is the Confluence Cloud scheme, so the Cloud
-    # site domain is the one outbound host.
-    outbound:
-      - "*.atlassian.net"
+    outbound: []
   filesystem:
     scratch: false
 

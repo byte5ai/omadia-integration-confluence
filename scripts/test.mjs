@@ -6,16 +6,12 @@
  * (already a dev dependency) transpiles each `tests/*.test.ts` into
  * `.test-build/` first, then `node --test` runs the transpiled output.
  *
- * `@omadia/plugin-api` is a host-provided peer and is not installed here. Since
- * the plugin imports a runtime helper from it (`classifyHttpAuthFailure`), the
- * tests bundle the REAL package source from an omadia checkout — the same
- * sibling `odoo-bot` checkout `tsconfig.json` points at, or the directory in
- * `OMADIA_PLUGIN_API_DIR` (…/middleware/packages/plugin-api). The plugin itself
- * is bundled from `src/`, so no `npm run build` is needed first.
+ * The plugin is bundled from `src/`, so no `npm run build` is needed first.
+ * `@omadia/plugin-api` stays external: the plugin imports only types from it.
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { readdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,19 +31,6 @@ if (entryPoints.length === 0) {
   process.exit(1);
 }
 
-const pluginApiDir = resolve(
-  process.env.OMADIA_PLUGIN_API_DIR ??
-    join(pkgRoot, '..', 'odoo-bot', 'middleware', 'packages', 'plugin-api'),
-);
-const pluginApiEntry = join(pluginApiDir, 'src', 'index.ts');
-if (!existsSync(pluginApiEntry)) {
-  console.error(
-    `@omadia/plugin-api source not found at ${pluginApiEntry}. ` +
-      'Point OMADIA_PLUGIN_API_DIR at <omadia>/middleware/packages/plugin-api (>= 1.35.0).',
-  );
-  process.exit(1);
-}
-
 rmSync(outDir, { recursive: true, force: true });
 
 console.log(`▶ transpiling ${entryPoints.length} test file(s)`);
@@ -60,9 +43,9 @@ await build({
   target: 'node20',
   sourcemap: 'inline',
   logLevel: 'error',
+  external: ['@omadia/plugin-api'],
   alias: {
     '@omadia/integration-confluence': join(pkgRoot, 'src', 'index.ts'),
-    '@omadia/plugin-api': pluginApiEntry,
   },
 });
 

@@ -35,7 +35,7 @@ interface ConfluenceClientOptions {
   observer?: ConnectionObserver;
 }
 
-/** The slice of `fetch` the client needs — `ctx.http.fetch` fits it. */
+/** The slice of `fetch` the client needs (injectable for tests). */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface ConfluenceClientContextOptions {
@@ -105,10 +105,6 @@ export class ConfluenceClient {
    * used once an agent is installed via the new platform flow; byte5-internal
    * limits like max-bytes still flow from the Config until we add a
    * per-plugin "operational" settings layer.
-   *
-   * Requests go through `ctx.http` (manifest allow-list, rate limit) whenever
-   * the kernel provides it. Hosts that do not supply `ctx.http` keep the
-   * previous global-`fetch` behaviour.
    */
   static async fromContext(
     ctx: PluginContext,
@@ -125,14 +121,12 @@ export class ConfluenceClient {
     const resolvedEmail = email || ctx.config.require<string>('confluence_email');
     const baseUrl = ctx.config.require<string>('confluence_base_url');
     const spaceKey = ctx.config.require<string>('confluence_space_key');
-    const http = ctx.http;
     return new ConfluenceClient({
       email: resolvedEmail,
       apiToken,
       baseUrl,
       spaceKey,
       maxBytes,
-      ...(http ? { fetchImpl: (url: string, init?: RequestInit) => http.fetch(url, init) } : {}),
       ...(options.observer ? { observer: options.observer } : {}),
     });
   }
