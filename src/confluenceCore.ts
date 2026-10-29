@@ -127,12 +127,51 @@ export async function search(
   return data;
 }
 
+/**
+ * Thrown when a read by page id targets a page outside the configured space
+ * (byte5ai/omadia#1597). Search, title lookup and every write are scoped
+ * already; id reads went to `GET /rest/api/content/{id}` unchecked, so any page
+ * the stored Atlassian account could see was readable — the whole wiki, not
+ * the one space the agent is limited to.
+ */
+export class SpaceScopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SpaceScopeError';
+  }
+}
+
+/** `expand` with `space` added, so the response says where the page lives. */
+function expandWithSpace(expand: string | undefined): string {
+  const parts = new Set((expand ?? '').split(',').filter((p) => p.length > 0));
+  parts.add('space');
+  return [...parts].join(',');
+}
+
+/**
+ * Refuse unless `data` is a page of the configured space. A page whose space
+ * the response does not name is refused too: unknown is not "in scope". The
+ * message names neither the page title nor its actual space.
+ */
+function assertReadInScope(data: unknown, id: string, spaceKey: string): void {
+  const space =
+    data && typeof data === 'object'
+      ? (data as { space?: { key?: unknown } }).space
+      : undefined;
+  if (space?.key !== spaceKey) {
+    throw new SpaceScopeError(
+      `Seite ${id} liegt nicht im Space '${spaceKey}', Lesezugriff ist auf diesen Space beschränkt — verweigert.`,
+    );
+  }
+}
+
 export async function getPage(
   id: string,
   expand: string | undefined,
   deps: Deps,
 ): Promise<unknown> {
-  const data = await deps.client.getPage(id, expand);
+  const data = await deps.client.getPage(id, expandWithSpace(expand));
+  assertReadInScope(data, id, deps.client.spaceKey);
   const ref = extractConfluencePageRef(data);
   if (ref) deps.entityRefBus.publish(ref);
   return data;
@@ -154,6 +193,13 @@ export async function getChildren(
   limit: number,
   deps: Deps,
 ): Promise<unknown> {
+  // A page's children live in the page's own space, so checking the parent
+  // scopes the listing (byte5ai/omadia#1597).
+  assertReadInScope(
+    await deps.client.getPage(id, 'space'),
+    id,
+    deps.client.spaceKey,
+  );
   const data = await deps.client.getChildren(id, limit);
   for (const ref of extractConfluencePageRefs(data)) {
     deps.entityRefBus.publish(ref);

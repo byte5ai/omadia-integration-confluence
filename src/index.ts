@@ -50,6 +50,7 @@ export {
   wrapWithSpaceScope,
   splitCql,
   CqlScopeError,
+  SpaceScopeError,
   search,
   getPage,
   getPageByTitle,
