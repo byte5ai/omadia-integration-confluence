@@ -187,7 +187,9 @@ When `confluence_write_enabled=true`, four more are appended:
 - `confluence_commit_write` — execute a confirmed `write_token` (single-use, 5-min TTL)
 
 The toolkit handles upstream-body truncation + structured-output formatting,
-and — for writes — the two-phase preview/confirm + server-side space-scope.
+the space-scope on every read (search, title lookup and, since 0.4.1, reads by
+page id), and — for writes — the two-phase preview/confirm + server-side
+space-scope. `ConfluenceClient` itself is NOT scoped for id reads.
 Reach for `ConfluenceClient` directly only when those patterns aren't enough.
 
 ## Reference implementations

@@ -113,7 +113,7 @@ function getPageTool(deps: Deps): LocalSubAgentTool {
     spec: {
       name: 'confluence_get_page',
       description:
-        'Fetch a single Confluence page by numeric id. Pass `expand=body.view,version` to get rendered HTML + version metadata.',
+        'Fetch a single Confluence page by numeric id. Pass `expand=body.view,version` to get rendered HTML + version metadata. Rejected if the page is outside the configured space.',
       input_schema: {
         type: 'object',
         properties: {
@@ -162,7 +162,7 @@ function getChildrenTool(deps: Deps): LocalSubAgentTool {
   return {
     spec: {
       name: 'confluence_get_children',
-      description: 'List child pages of a given page id.',
+      description: 'List child pages of a given page id. Rejected if the page is outside the configured space.',
       input_schema: {
         type: 'object',
         properties: {
