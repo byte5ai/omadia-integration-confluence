@@ -3,10 +3,10 @@ schema_version: "1"
 identity:
   id: "@omadia/integration-confluence"
   name: "Confluence Connector"
-  version: "0.4.1"
+  version: "0.5.0"
   kind: "integration"
   domain: "confluence"
-  description: "Atlassian Confluence REST-API-Layer (space-scoped) für den Confluence-Playbook-Sub-Agent + proaktive Page-Entity-Synchronisation in den Knowledge-Graph. Read-only per Default; optionaler Schreibzugriff (Seite anlegen/aktualisieren, Kommentar) via confluence_write_enabled, abgesichert durch zweistufigen Vorschau-/Bestätigungs-Flow. Publiziert kernel-Services 'confluence.client' (ConfluenceClient) + 'confluence.toolkit' (LocalSubAgentTool[])."
+  description: "Atlassian Confluence REST-API-Layer (space-scoped) für den Confluence-Playbook-Sub-Agent + proaktive Page-Entity-Synchronisation in den Knowledge-Graph. Read-only per Default; optionaler Schreibzugriff (Seite anlegen/aktualisieren, Kommentar) via confluence_write_enabled, abgesichert durch zweistufigen Vorschau-/Bestätigungs-Flow. Publiziert kernel-Services 'confluence.client' (ConfluenceClient) + 'confluence.toolkit' (LocalSubAgentTool[]) und registriert die Lese-Tools search_confluence_pages / list_confluence_child_pages direkt beim Haupt-Agenten (Seitenlisten ohne Sprachmodell über den Schnellpfad)."
   authors:
     - name: "byte5 GmbH"
       email: "dev@byte5.de"
@@ -102,6 +102,18 @@ setup:
       help: "Erlaubt dem Agenten, Seiten anzulegen/zu aktualisieren und Kommentare zu schreiben — immer erst nach expliziter Nutzer-Bestätigung der Vorschau. Default aus (nur lesen). Voraussetzung: das API-Token hat Schreibrechte im konfigurierten Space."
       required: false
       default: false
+
+    # ------------------------------------------------------------------
+    # Orchestrator read tools (default on). Flat page lists the core's fast
+    # path can plan and render without a model (Jev / decisionModel@1 picks
+    # Confluence as the data source). Read-only, space-scoped.
+    # ------------------------------------------------------------------
+    - key: "confluence_orchestrator_tools_enabled"
+      type: "string"
+      label: "Seitenlisten direkt für den Haupt-Agenten"
+      help: "'true' (Standard) registriert die Lese-Tools `search_confluence_pages` (Seiten nach Begriff, Titel oder letzter Änderung) und `list_confluence_child_pages` (Unterseiten einer Seite) direkt beim Haupt-Agenten. Sie liefern flache Zeilen (Titel, Link, letzte Änderung, kurzer Auszug), die der Schnellpfad ohne Sprachmodell als Tabelle zeigen kann. Nur lesend und auf den konfigurierten Space beschränkt; Inhalte und Zusammenfassungen bleiben beim Confluence-Sub-Agent. 'false' schaltet sie ab."
+      required: false
+      default: "true"
 
     # ------------------------------------------------------------------
     # Entity-Sync (proactive graph population via ctx.jobs.register in phase-2.3-iii)

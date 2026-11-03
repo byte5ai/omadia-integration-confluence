@@ -62,6 +62,7 @@ function fakeCtx(opts: {
     calls.push({ url: String(url), init });
     return respond(String(url), init);
   }) as typeof fetch;
+  const registered = new Set<string>();
   const ctx = {
     agentId: '@omadia/integration-confluence',
     log: () => undefined,
@@ -99,8 +100,14 @@ function fakeCtx(opts: {
         throw new Error('ctx.http must not be used');
       },
     },
+    tools: {
+      register: (spec: { name: string }) => {
+        registered.add(spec.name);
+        return () => registered.delete(spec.name);
+      },
+    },
   } as unknown as PluginContext;
-  return { ctx, calls, reports, provided };
+  return { ctx, calls, reports, provided, registered };
 }
 
 const realFetch = globalThis.fetch;
@@ -293,12 +300,14 @@ describe('call-time status reporting', () => {
 
   it('activate() wires the reporter into ctx.status and keeps the existing transport', async () => {
     let status = 401;
-    const { ctx, calls, reports, provided } = fakeCtx({
+    const { ctx, calls, reports, provided, registered } = fakeCtx({
       respond: () =>
         status === 401 ? textResponse(401, '', 'text/plain') : jsonResponse(200, { key: 'ENG' }),
     });
     const handle = await activate(ctx);
     try {
+      // the orchestrator read tools are on by default
+      assert.deepEqual([...registered].sort(), ['list_confluence_child_pages', 'search_confluence_pages']);
       const client = provided.get(CONFLUENCE_CLIENT_SERVICE_NAME) as ConfluenceClient;
       await assert.rejects(client.getSpace());
       assert.equal(calls.length, 1, 'request went through the existing transport');
@@ -315,6 +324,7 @@ describe('call-time status reporting', () => {
     } finally {
       await handle.close();
     }
+    assert.equal(registered.size, 0, 'close() unregisters the tools');
   });
 });
 

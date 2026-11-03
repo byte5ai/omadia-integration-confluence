@@ -24,6 +24,7 @@ syncs page entities into the knowledge graph.
 | Entity sync | `confluenceEntitySync.ts`, `confluenceEntityExtractor.ts` — proactive page-entity sync into the knowledge graph |
 | Writes | Read-only by default; optional writes (create/update page, comment) via `confluence_write_enabled`, gated by a two-step preview/confirm flow (`confluenceWriteCore.ts`, `confluenceWriteStore.ts`) |
 | Service surface | Publishes `confluence.client` and `confluence.toolkit` to the service registry |
+| Orchestrator tools | `search_confluence_pages` + `list_confluence_child_pages` (`confluenceOrchestratorTools.ts`, setting `confluence_orchestrator_tools_enabled`, default on): read-only, space-scoped page lists as flat rows — the core's fast path lists Confluence pages without a model |
 
 ## Build, typecheck & test
 

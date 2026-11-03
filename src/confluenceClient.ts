@@ -82,7 +82,8 @@ export interface AddCommentInput {
  */
 export class ConfluenceClient {
   private readonly authHeader: string;
-  private readonly baseUrl: string;
+  /** wiki base, no trailing slash — links in responses are relative to it */
+  public readonly baseUrl: string;
   public readonly spaceKey: string;
   private readonly maxBytes: number;
   private readonly fetchImpl: FetchLike;
@@ -184,6 +185,8 @@ export class ConfluenceClient {
   async getChildren(id: string, limit: number): Promise<unknown> {
     const url = new URL(`${this.baseUrl}/rest/api/content/${encodeURIComponent(id)}/child/page`);
     url.searchParams.set('limit', String(limit));
+    // `version.when` = last change, for the listing's date column
+    url.searchParams.set('expand', 'version');
     return this.request('GET', url);
   }
 

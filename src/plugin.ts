@@ -8,6 +8,7 @@ import {
 } from './connectionStatus.js';
 import { readBoolean, readPositiveInt } from './configValues.js';
 import { ConfluenceEntitySync } from './confluenceEntitySync.js';
+import { createOrchestratorTools } from './confluenceOrchestratorTools.js';
 import { createConfluenceTools } from './confluenceToolkit.js';
 import { ConfluenceWriteStore } from './confluenceWriteStore.js';
 import type {
@@ -159,6 +160,21 @@ export async function activate(
     tools,
   );
 
+  // Read-only list tools for the orchestrator itself (default on): flat page
+  // rows the core's deterministic fast path can plan and render without a
+  // model. Content questions stay with the sub-agent toolkit above.
+  const orchestratorToolsEnabled = readBoolean(
+    'confluence_orchestrator_tools_enabled',
+    ctx.config.get<unknown>('confluence_orchestrator_tools_enabled'),
+    true,
+    warn,
+  );
+  const disposeOrchestratorTools = orchestratorToolsEnabled
+    ? createOrchestratorTools({ client, entityRefBus }).map((t) =>
+        ctx.tools.register(t.spec, t.handler, { promptDoc: t.promptDoc }),
+      )
+    : [];
+
   ctx.log(
     `[confluence] ready (space=${client.spaceKey}, maxBytes=${String(maxBytes)}, write=${writeEnabled ? 'ENABLED' : 'read-only'}) — services '${CONFLUENCE_CLIENT_SERVICE_NAME}' + '${CONFLUENCE_TOOLKIT_SERVICE_NAME}' published (${String(tools.length)} tools)`,
   );
@@ -254,6 +270,7 @@ export async function activate(
       ctx.log('deactivating confluence integration');
       if (initialSyncTimer !== undefined) clearTimeout(initialSyncTimer);
       disposeEntitySync?.();
+      for (const dispose of disposeOrchestratorTools) dispose();
       disposeToolkit();
       disposeClient();
     },
