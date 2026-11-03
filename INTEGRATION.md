@@ -12,6 +12,14 @@ Confluence REST and is space-scoped at the integration level.
 | `confluence.client`    | `ConfluenceClient`                       | Thin REST wrapper, space-scoped (read + gated write)     |
 | `confluence.toolkit`   | `LocalSubAgentTool[]`                    | 5 read tools, +4 write tools when `confluence_write_enabled` |
 
+Plus two **orchestrator** read tools via `ctx.tools.register` (setting
+`confluence_orchestrator_tools_enabled`, default on): `search_confluence_pages`
+(`text` / `title` / `modified_within_days` / `order` / `limit`) and
+`list_confluence_child_pages` (`parent_title`, `limit`). Structured input, the
+CQL is built with escaped literals and space-scoped; output is flat JSON
+`{ space, count, truncated, pages: [{ id, title, url, last_modified, excerpt }] }`
+so the core's fast path (Jev / `decisionModel@1`) can list pages without a model.
+
 ## Consumption Pattern
 
 Plugin must declare `de.byte5.integration.confluence` in `manifest.yaml`'s
