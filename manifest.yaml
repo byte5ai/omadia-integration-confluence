@@ -3,7 +3,7 @@ schema_version: "1"
 identity:
   id: "@omadia/integration-confluence"
   name: "Confluence Connector"
-  version: "0.5.0"
+  version: "0.6.0"
   kind: "integration"
   domain: "confluence"
   description: "Atlassian Confluence REST-API-Layer (space-scoped) für den Confluence-Playbook-Sub-Agent + proaktive Page-Entity-Synchronisation in den Knowledge-Graph. Read-only per Default; optionaler Schreibzugriff (Seite anlegen/aktualisieren, Kommentar) via confluence_write_enabled, abgesichert durch zweistufigen Vorschau-/Bestätigungs-Flow. Publiziert kernel-Services 'confluence.client' (ConfluenceClient) + 'confluence.toolkit' (LocalSubAgentTool[]) und registriert die Lese-Tools search_confluence_pages / list_confluence_child_pages direkt beim Haupt-Agenten (Seitenlisten ohne Sprachmodell über den Schnellpfad)."
@@ -17,7 +17,7 @@ identity:
     - "knowledge"
 
 compat:
-  core: ">=1.0 <2.0"
+  core: ">=1.75.0 <2.0"
   node: ">=20"
 
 lifecycle:
@@ -161,7 +161,8 @@ permissions:
     reads: []
     writes: []
   network:
-    outbound: []
+    outbound:
+      - "$config.confluence_base_url"   # operator-entered Confluence host
   filesystem:
     scratch: false
 
@@ -176,6 +177,42 @@ integrations:
     target: "Atlassian Confluence REST API (GET /rest/api/search + /rest/api/space + /rest/api/content + /rest/api/user/current as connection probe; POST/PUT /rest/api/content when write enabled)"
     auth_from: "confluence_api_token"
     docs: "https://developer.atlassian.com/cloud/confluence/rest/v1/intro/"
+
+# Tool effects (spec 2042): id = registered tool name.
+capabilities:
+  - id: "search_confluence_pages"
+    description: "Search Confluence pages (flat rows, space-scoped)."
+    side_effects: "read"
+  - id: "list_confluence_child_pages"
+    description: "List child pages of a page."
+    side_effects: "read"
+  - id: "confluence_search"
+    description: "Search Confluence via CQL (sub-agent toolkit)."
+    side_effects: "read"
+  - id: "confluence_get_page"
+    description: "Read a page by id."
+    side_effects: "read"
+  - id: "confluence_get_page_by_title"
+    description: "Read a page by title."
+    side_effects: "read"
+  - id: "confluence_get_children"
+    description: "List child pages."
+    side_effects: "read"
+  - id: "confluence_get_space"
+    description: "Read space metadata."
+    side_effects: "read"
+  - id: "confluence_create_page"
+    description: "Stage creation of a page (preview only; opt-in writes)."
+    side_effects: "write"
+  - id: "confluence_update_page"
+    description: "Stage an update of a page (preview only; opt-in writes)."
+    side_effects: "write"
+  - id: "confluence_add_comment"
+    description: "Stage a page comment (preview only; opt-in writes)."
+    side_effects: "write"
+  - id: "confluence_commit_write"
+    description: "Commit a confirmed staged write to Confluence (opt-in writes)."
+    side_effects: "write"
 
 # Capabilities this plugin contributes to the kernel.
 #
