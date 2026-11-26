@@ -3,7 +3,7 @@ schema_version: "1"
 identity:
   id: "@omadia/integration-confluence"
   name: "Confluence Connector"
-  version: "0.6.0"
+  version: "0.6.1"
   kind: "integration"
   domain: "confluence"
   description: "Atlassian Confluence REST-API-Layer (space-scoped) für den Confluence-Playbook-Sub-Agent + proaktive Page-Entity-Synchronisation in den Knowledge-Graph. Read-only per Default; optionaler Schreibzugriff (Seite anlegen/aktualisieren, Kommentar) via confluence_write_enabled, abgesichert durch zweistufigen Vorschau-/Bestätigungs-Flow. Publiziert kernel-Services 'confluence.client' (ConfluenceClient) + 'confluence.toolkit' (LocalSubAgentTool[]) und registriert die Lese-Tools search_confluence_pages / list_confluence_child_pages direkt beim Haupt-Agenten (Seitenlisten ohne Sprachmodell über den Schnellpfad)."
@@ -160,6 +160,10 @@ permissions:
   graph:
     reads: []
     writes: []
+    # ADR 0167 (byte5ai/omadia#2242): the kernel holds this plugin's
+    # knowledgeGraph@1 entity and fact writes to the systems named here.
+    entity_systems:
+      - "confluence"
   network:
     outbound:
       - "$config.confluence_base_url"   # operator-entered Confluence host
