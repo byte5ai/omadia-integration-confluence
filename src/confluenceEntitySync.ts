@@ -102,7 +102,7 @@ export class ConfluenceEntitySync {
         const limit = Math.min(this.pageSize, this.maxPages - result.read);
         const response = (await this.opts.confluence.search(cql, limit, undefined, {
           start: page.start,
-          ...(page.cursor ? { cursor: page.cursor } : {}),
+          ...(page.cursor ? { cursor: page.cursor, next: true } : {}),
         })) as SearchResponse;
         const results = Array.isArray(response.results) ? response.results : [];
         if (results.length === 0) break;

@@ -39,6 +39,8 @@ interface ConfluenceClientOptions {
 export interface SearchPage {
   start?: number;
   cursor?: string;
+  /** Cursor direction flag Cloud's `_links.next` carries (`next=true`). */
+  next?: boolean;
 }
 
 /** The slice of `fetch` the client needs (injectable for tests). */
@@ -180,6 +182,7 @@ export class ConfluenceClient {
       url.searchParams.set('start', String(page.start));
     }
     if (page.cursor) url.searchParams.set('cursor', page.cursor);
+    if (page.next) url.searchParams.set('next', 'true');
     return this.request('GET', url);
   }
 

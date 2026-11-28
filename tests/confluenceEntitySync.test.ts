@@ -96,6 +96,8 @@ describe('ConfluenceEntitySync (#10)', () => {
     const nextLink = new URL(fixture.page1._links.next, 'https://x.invalid');
     assert.equal(p2?.searchParams.get('cursor'), nextLink.searchParams.get('cursor'));
     assert.equal(p2?.searchParams.get('start'), '2');
+    assert.equal(p2?.searchParams.get('next'), 'true');
+    assert.equal(p1?.searchParams.get('next'), null);
     assert.equal(p2?.searchParams.get('cql'), p1?.searchParams.get('cql'));
     const ids = h.ingested.flat().map((e) => e.id);
     assert.deepEqual(ids, ['1000', '1001', '1002']);
@@ -113,5 +115,55 @@ describe('ConfluenceEntitySync (#10)', () => {
     const result = await h.sync.syncAll();
     assert.equal(h.requests.length, 2);
     assert.equal(result.read, 4);
+  });
+
+  it('maps a flat result without content, skips non-page content, and falls back to the result title', async () => {
+    const answer = {
+      results: [
+        { id: '2001', type: 'page', title: 'Flat Page', _links: { webui: '/spaces/HOME/pages/2001' } },
+        { content: { id: '2002', type: 'attachment', title: 'logo.png' }, title: 'logo.png' },
+        {
+          content: { id: '2003', type: 'page', title: '   ' },
+          title: '@@@hl@@@Quarterly@@@endhl@@@ Review',
+          url: '/spaces/HOME/pages/2003',
+          lastModified: '2026-11-01T08:00:00.000Z',
+        },
+      ],
+      start: 0,
+      limit: 25,
+      size: 3,
+      _links: {},
+    };
+    const h = harness(() => answer, { pageSize: 25 });
+    const result = await h.sync.syncAll();
+
+    assert.equal(result.read, 3);
+    assert.equal(result.skipped, 1);
+    const entities = h.ingested.flat();
+    assert.deepEqual(
+      entities.map((e) => [e.id, e.displayName]),
+      [
+        ['2001', 'Flat Page'],
+        ['2003', 'Quarterly Review'],
+      ],
+    );
+    assert.deepEqual(entities[1]?.extras, {
+      lastModified: '2026-11-01T08:00:00.000Z',
+      webUiPath: '/spaces/HOME/pages/2003',
+    });
+  });
+
+  it('continues at the next offset when the next link has a cursor but no start', async () => {
+    const page1 = {
+      ...(fixture.page1 as object),
+      _links: { next: '/rest/api/search?next=true&cursor=abc123&limit=2' },
+    };
+    const h = harness((_url, call) => (call === 1 ? page1 : fixture.page2));
+    await h.sync.syncAll();
+
+    assert.equal(h.requests.length, 2);
+    assert.equal(h.requests[1]?.searchParams.get('cursor'), 'abc123');
+    assert.equal(h.requests[1]?.searchParams.get('start'), '2');
+    assert.equal(h.requests[1]?.searchParams.get('next'), 'true');
   });
 });

@@ -3,7 +3,7 @@
 ## 0.7.0
 
 - Entity sync writes again (#10). `/rest/api/search` wraps each page in `results[].content`; the sync read `raw.id` / `raw.title` and skipped every result, so `ingestEntities` was never called (live: `read=20 ingested=0 skip=20`). It now maps `content` (falling back to the result's own `title` without highlight markers, `lastModified` and `url`), and skips non-page content.
-- Entity sync pages properly. `ConfluenceClient.search` takes an optional `{ start, cursor }`, and the sync follows the `_links.next` cursor until the answer has no next link, instead of re-reading the first page until `confluence_entity_sync_max_pages`. A server that repeats the same next link stops the run; `max_pages` still caps it.
+- Entity sync pages properly. `ConfluenceClient.search` takes an optional `{ start, cursor }`, and the sync follows the `_links.next` cursor (sending `next=true` with it, as Cloud documents) until the answer has no next link, instead of re-reading the first page until `confluence_entity_sync_max_pages`. A server that repeats the same next link stops the run; `max_pages` still caps it.
 - Tests: `tests/confluenceEntitySync.test.ts` against a Confluence Cloud search-response fixture (`tests/fixtures/confluenceSearchPages.json`).
 
 ## 0.6.1
