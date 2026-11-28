@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- Entity sync writes again (#10). `/rest/api/search` wraps each page in `results[].content`; the sync read `raw.id` / `raw.title` and skipped every result, so `ingestEntities` was never called (live: `read=20 ingested=0 skip=20`). It now maps `content` (falling back to the result's own `title` without highlight markers, `lastModified` and `url`), and skips non-page content.
+- Entity sync pages properly. `ConfluenceClient.search` takes an optional `{ start, cursor }`, and the sync follows the `_links.next` cursor (sending `next=true` with it, as Cloud documents) until the answer has no next link, instead of re-reading the first page until `confluence_entity_sync_max_pages`. A server that repeats the same next link stops the run; `max_pages` still caps it.
+- Tests: `tests/confluenceEntitySync.test.ts` against a Confluence Cloud search-response fixture (`tests/fixtures/confluenceSearchPages.json`).
+
 ## 0.6.1
 
 - Manifest: `permissions.graph.entity_systems: ["confluence"]` (ADR 0167, byte5ai/omadia#2242). The kernel holds this plugin's `knowledgeGraph@1` entity and fact writes to its declared systems; the entity sync writes only `confluence` entities. Without the declaration the kernel logs a `[security-audit]` warning now and refuses the writes once the ADR 0167 transition ends (byte5ai/omadia#2244). Kernels before ADR 0167 strip `confluence` from the list, so the plugin still runs there unchanged.

@@ -35,6 +35,14 @@ interface ConfluenceClientOptions {
   observer?: ConnectionObserver;
 }
 
+/** Where a CQL search continues (see {@link ConfluenceClient.search}). */
+export interface SearchPage {
+  start?: number;
+  cursor?: string;
+  /** Cursor direction flag Cloud's `_links.next` carries (`next=true`). */
+  next?: boolean;
+}
+
 /** The slice of `fetch` the client needs (injectable for tests). */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -155,15 +163,26 @@ export class ConfluenceClient {
     };
   }
 
+  /**
+   * CQL search (`GET /rest/api/search`). `page` continues a listing: Confluence
+   * Cloud pages the CQL search with the opaque `cursor` from the previous
+   * answer's `_links.next`; `start` is the offset form older servers use.
+   */
   async search(
     cql: string,
     limit: number,
     expand?: string,
+    page: SearchPage = {},
   ): Promise<unknown> {
     const url = new URL(`${this.baseUrl}/rest/api/search`);
     url.searchParams.set('cql', cql);
     url.searchParams.set('limit', String(limit));
     if (expand) url.searchParams.set('expand', expand);
+    if (page.start !== undefined && page.start > 0) {
+      url.searchParams.set('start', String(page.start));
+    }
+    if (page.cursor) url.searchParams.set('cursor', page.cursor);
+    if (page.next) url.searchParams.set('next', 'true');
     return this.request('GET', url);
   }
 
